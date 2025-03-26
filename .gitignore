@@ -398,3 +398,7 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+/CopyCat/CopyCat.sln
+/CopyCat/Properties/launchSettings.json
+/CopyCat/Dockerfile
+/CopyCat/.dockerignore
