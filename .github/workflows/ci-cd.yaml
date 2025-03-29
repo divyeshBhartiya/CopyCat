@@ -49,7 +49,6 @@ jobs:
 
     - name: Deploy
       run: |
-        # Add your deployment script here
-        # For example, copy the output to a deployment directory
-        xcopy deployment\* C:\path\to\deployment\directory /s /e /y
+        mkdir -p CopyCat/releases
+        cp deployment/CopyCat.exe CopyCat/releases/CopyCat.exe
 
