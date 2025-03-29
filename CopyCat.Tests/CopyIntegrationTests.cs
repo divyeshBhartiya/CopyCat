@@ -236,6 +236,40 @@ namespace CopyCat.Tests
             Assert.False(File.Exists(Path.Combine(destDir, "hidden.txt"))); // Hidden file should NOT be copied
         }
 
+        [Fact]
+        public async Task CopyDirectoryAsync_PreservesTimestamps()
+        {
+            // Arrange
+            string srcFile = Path.Combine(testSourceDir, "timestampedFile.txt");
+            string destFile = Path.Combine(testDestDir, "timestampedFile.txt");
+
+            await File.WriteAllTextAsync(srcFile, "Testing timestamps");
+
+            // Set timestamps
+            DateTime createdTime = DateTime.Now.AddDays(-2);
+            DateTime modifiedTime = DateTime.Now.AddDays(-1);
+            DateTime accessedTime = DateTime.Now;
+
+            File.SetCreationTime(srcFile, createdTime);
+            File.SetLastWriteTime(srcFile, modifiedTime);
+            File.SetLastAccessTime(srcFile, accessedTime);
+
+            var options = new CopyOptions(testSourceDir, testDestDir, Overwrite: true);
+            var progress = new Progress<int>(_ => { });
+            var correlationId = Guid.NewGuid().ToString();
+            var progressReporter = new ProgressReporter(1, progress, correlationId);
+            var service = new CopyService(options, progressReporter, correlationId);
+
+            // Act
+            await service.CopyAsync(CancellationToken.None);
+
+            // Assert
+            Assert.True(File.Exists(destFile));
+            Assert.Equal(createdTime, File.GetCreationTime(destFile), TimeSpan.FromDays(1, 1, 1, 10));
+            Assert.Equal(modifiedTime, File.GetLastWriteTime(destFile), TimeSpan.FromDays(1, 1, 1, 10));
+            Assert.Equal(accessedTime, File.GetLastAccessTime(destFile), TimeSpan.FromDays(1, 1, 1, 10));
+        }
+
         public void Dispose()
         {
             Cleanup();
