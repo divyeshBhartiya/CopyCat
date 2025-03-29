@@ -4,9 +4,12 @@ public record CopyOptions(
 string SourcePath,
 string DestinationPath,
 bool Overwrite = false,
+bool RenameOnConflict = false,
 string LogLevel = "error-only",
 bool Parallel = false,
-bool IncludeHidden = false)
+bool IncludeHidden = false,
+bool PreserveSymlinks = false,
+int MaxDepth = 50)
 {
     public static CopyOptions Parse(string[] args)
     {
@@ -21,9 +24,11 @@ bool IncludeHidden = false)
             argDict["source"],
             argDict["destination"],
             argDict.ContainsKey("overwrite") && bool.Parse(argDict["overwrite"]),
+            argDict.ContainsKey("rename-on-conflict") && bool.Parse(argDict["rename-on-conflict"]),
             argDict.ContainsKey("log") ? argDict["log"].ToLower() : "error-only",
             argDict.ContainsKey("parallel") && bool.Parse(argDict["parallel"]),
-            argDict.ContainsKey("include-hidden") && bool.Parse(argDict["include-hidden"])
+            argDict.ContainsKey("include-hidden") && bool.Parse(argDict["include-hidden"]),
+            argDict.ContainsKey("preserve-symlinks") && bool.Parse(argDict["preserve-symlinks"])
         );
     }
 
