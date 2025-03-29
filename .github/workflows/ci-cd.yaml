@@ -22,16 +22,16 @@ jobs:
         dotnet-version: '9.0.x'
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore ./CopyCat/CopyCat.csproj
 
     - name: Build
-      run: dotnet build --configuration Release --no-restore
+      run: dotnet build --configuration Release --no-restore ./CopyCat/CopyCat.csproj
 
     - name: Run tests
-      run: dotnet test --no-restore --verbosity normal
+      run: dotnet test --no-restore --verbosity normal ./CopyCat/CopyCat.Tests.csproj
 
     - name: Publish
-      run: dotnet publish -c Release -o out
+      run: dotnet publish -c Release -o out ./CopyCat/CopyCat.csproj
 
     - name: Create CopyCat.exe
       run: |
