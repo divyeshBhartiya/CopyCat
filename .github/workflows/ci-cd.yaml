@@ -29,9 +29,11 @@ jobs:
 
     - name: Locate test project
       id: locate-tests
+      shell: pwsh
       run: |
-        echo "Locating test project file..."
-        test_project=$(find . -name "CopyCat.Tests.csproj")
+        Write-Host "Locating test project file..."
+        $test_project = Get-ChildItem -Recurse -Filter "CopyCat.Tests.csproj" | Select-Object -First 1 -ExpandProperty FullName
+        Write-Host "Test project file located at: $test_project"
         echo "::set-output name=test_project::$test_project"
 
     - name: Run tests
@@ -50,3 +52,4 @@ jobs:
         # Add your deployment script here
         # For example, copy the output to a deployment directory
         xcopy deployment\* C:\path\to\deployment\directory /s /e /y
+
