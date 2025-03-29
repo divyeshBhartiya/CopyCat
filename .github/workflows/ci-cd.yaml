@@ -27,8 +27,15 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release --no-restore ./CopyCat/CopyCat.csproj
 
+    - name: Locate test project
+      id: locate-tests
+      run: |
+        echo "Locating test project file..."
+        test_project=$(find . -name "CopyCat.Tests.csproj")
+        echo "::set-output name=test_project::$test_project"
+
     - name: Run tests
-      run: dotnet test --no-restore --verbosity normal ./CopyCat/CopyCat.Tests.csproj
+      run: dotnet test --no-restore --verbosity normal ${{ steps.locate-tests.outputs.test_project }}
 
     - name: Publish
       run: dotnet publish -c Release -o out ./CopyCat/CopyCat.csproj
