@@ -1,0 +1,45 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+
+    - name: Run tests
+      run: dotnet test --no-restore --verbosity normal
+
+    - name: Publish
+      run: dotnet publish -c Release -o out
+
+    - name: Create CopyCat.exe
+      run: |
+        mkdir -p deployment
+        cp out/CopyCat.exe deployment/CopyCat.exe
+
+    - name: Deploy
+      run: |
+        # Add your deployment script here
+        # For example, copy the output to a deployment directory
+        xcopy deployment\* C:\path\to\deployment\directory /s /e /y

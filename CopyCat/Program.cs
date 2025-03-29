@@ -1,7 +1,5 @@
 ﻿using Serilog;
-using Serilog.Context;
 using Serilog.Formatting.Json;
-using System;
 
 namespace CopyCat;
 
