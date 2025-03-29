@@ -119,33 +119,59 @@ public class CopyService(CopyOptions options, ProgressReporter progressReporter,
 
     private async Task HandleFileCopying(string file, string destFile, CancellationToken token)
     {
-        try
-        {
-            token.ThrowIfCancellationRequested();
+        const int maxRetries = 3;
+        int attempt = 0;
 
-            if (File.Exists(destFile))
+        while (attempt < maxRetries)
+        {
+            try
             {
-                File.SetAttributes(destFile, FileAttributes.Normal);
-                File.Delete(destFile);
-            }
+                token.ThrowIfCancellationRequested();
 
-            long fileSize = new FileInfo(file).Length;
-            const long multiThreadThreshold = 4 * 1024 * 1024; // 4MB
-            if (fileSize > multiThreadThreshold) await CopyServiceHelper.CopyFileMultiThreadedAsync(file, destFile, fileSize, _correlationId, token);
-            else await CopyServiceHelper.CopyFileSingleThreadedAsync(file, destFile, fileSize, _correlationId, token);
-            _progressReporter.FileCopied();
-            CopyServiceHelper.PreserveFileMetadata(file, destFile); // Preserve timestamps & attributes
+                if (File.Exists(destFile))
+                {
+                    File.SetAttributes(destFile, FileAttributes.Normal);
+                    File.Delete(destFile);
+                }
+
+                long fileSize = new FileInfo(file).Length;
+                const long multiThreadThreshold = 4 * 1024 * 1024; // 4MB
+
+                Log.Information("📄 Copying file (Attempt {Attempt}/{MaxRetries}) - Size: {FileSize} bytes. CorrelationId: {CorrelationId}",
+                    attempt + 1, maxRetries, fileSize, _correlationId);
+
+                if (fileSize > multiThreadThreshold)
+                    await CopyServiceHelper.CopyFileMultiThreadedAsync(file, destFile, fileSize, _correlationId, token);
+                else
+                    await CopyServiceHelper.CopyFileSingleThreadedAsync(file, destFile, fileSize, _correlationId, token);
+
+                // ✅ Success! Report progress and return.
+                _progressReporter.FileCopied();
+                CopyServiceHelper.PreserveFileMetadata(file, destFile);
+                return; // Exit on success
+            }
+            catch (IOException) when (attempt < maxRetries - 1)
+            {
+                // ⏳ Handle locked file - Retry after a delay
+                Log.Warning("🔄 File locked, retrying in 2 seconds... Attempt {Attempt}/{MaxRetries}. CorrelationId: {CorrelationId}",
+                    attempt + 1, maxRetries, _correlationId);
+                await Task.Delay(2000, token);
+            }
+            catch (OperationCanceledException)
+            {
+                Log.Warning("⏹️ Copy operation cancelled. CorrelationId: {CorrelationId}", _correlationId);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "❌ Unexpected error while copying {File}. CorrelationId: {CorrelationId}", file, _correlationId);
+                throw;
+            }
+            attempt++;
         }
-        catch (OperationCanceledException)
-        {
-            Log.Warning("⏹️ Copy operation cancelled while processing file. CorrelationId: {CorrelationId}", _correlationId);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "❌ Error while copying file. CorrelationId: {CorrelationId}", _correlationId);
-            throw;
-        }
+
+        // 🚨 If all retries fail, log and skip the file.
+        Log.Error("❌ Failed to copy file after {MaxRetries} attempts: {File}. CorrelationId: {CorrelationId}",
+            maxRetries, file, _correlationId);
     }
-    
 }

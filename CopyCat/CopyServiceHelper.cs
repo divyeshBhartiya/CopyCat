@@ -119,9 +119,10 @@ internal static class CopyServiceHelper
     /// <returns></returns>
     internal static async Task CopyFileSingleThreadedAsync(string sourceFile, string destinationFile, long fileSize, string correlationId, CancellationToken token)
     {
-        Log.Information("📄 Copying small file: {File}. Size: {Size} bytes. CorrelationId: {CorrelationId}", sourceFile, fileSize, correlationId);
+        Log.Information("📄 Copying (Single-threaded) {File}. Size: {Size} bytes. CorrelationId: {CorrelationId}",
+            sourceFile, fileSize, correlationId);
+
         const int bufferSize = 81920; // 80KB buffer
-        long totalBytes = new FileInfo(sourceFile).Length;
         long copiedBytes = 0;
 
         using var sourceStream = new FileStream(sourceFile, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -129,15 +130,19 @@ internal static class CopyServiceHelper
 
         byte[] buffer = new byte[bufferSize];
         int bytesRead;
+
         while ((bytesRead = await sourceStream.ReadAsync(buffer, token)) > 0)
         {
             await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
             copiedBytes += bytesRead;
 
-            // Calculate progress percentage for this file
-            int fileProgress = (int)((double)copiedBytes / totalBytes * 100);
-            Log.Information("📊 Progress: {Progress}% copied for {File}. CorrelationId: {CorrelationId}",
-                fileProgress, sourceFile, correlationId);
+            // ✅ Log progress every 10%
+            int fileProgress = (int)((double)copiedBytes / fileSize * 100);
+            if (fileProgress % 10 == 0)
+            {
+                Log.Information("📊 {Progress}% copied for {File}. CorrelationId: {CorrelationId}",
+                    fileProgress, sourceFile, correlationId);
+            }
         }
     }
 
@@ -152,44 +157,57 @@ internal static class CopyServiceHelper
     /// <returns></returns>
     internal static async Task CopyFileMultiThreadedAsync(string sourceFile, string destinationFile, long fileSize, string correlationId, CancellationToken token)
     {
-        Log.Information("📄 Copying small file: {File}. Size: {Size} bytes. CorrelationId: {CorrelationId}", sourceFile, fileSize, correlationId);
+        Log.Information("📄 Copying (Multi-threaded) {File}. Size: {Size} bytes. CorrelationId: {CorrelationId}",
+            sourceFile, fileSize, correlationId);
 
-        long totalBytes = new FileInfo(sourceFile).Length;
         long copiedBytes = 0;
         const int chunkSize = 4 * 1024 * 1024; // 4MB chunks
-        int numChunks = (int)Math.Ceiling((double)totalBytes / chunkSize);
+        int numChunks = (int)Math.Ceiling((double)fileSize / chunkSize);
+        SemaphoreSlim semaphore = new SemaphoreSlim(4); // Limit concurrency to 4 threads
 
         using var sourceStream = new FileStream(sourceFile, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var destinationStream = new FileStream(destinationFile, FileMode.Create, FileAccess.Write, FileShare.None);
 
         var tasks = Enumerable.Range(0, numChunks).Select(async i =>
         {
-            long offset = i * chunkSize;
-            int currentChunkSize = (int)Math.Min(chunkSize, totalBytes - offset);
-            byte[] buffer = new byte[currentChunkSize];
-
-            token.ThrowIfCancellationRequested();
-
-            lock (sourceStream)
+            await semaphore.WaitAsync(token);
+            try
             {
-                sourceStream.Seek(offset, SeekOrigin.Begin);
-                sourceStream.ReadExactly(buffer, 0, currentChunkSize);
-            }
+                long offset = i * chunkSize;
+                int currentChunkSize = (int)Math.Min(chunkSize, fileSize - offset);
+                byte[] buffer = new byte[currentChunkSize];
 
-            lock (destinationStream)
+                token.ThrowIfCancellationRequested();
+
+                lock (sourceStream)
+                {
+                    sourceStream.Seek(offset, SeekOrigin.Begin);
+                    sourceStream.ReadExactly(buffer, 0, currentChunkSize);
+                }
+
+                lock (destinationStream)
+                {
+                    destinationStream.Seek(offset, SeekOrigin.Begin);
+                    destinationStream.Write(buffer, 0, currentChunkSize);
+                }
+
+                Interlocked.Add(ref copiedBytes, currentChunkSize);
+
+                // ✅ Log progress every 10%
+                int fileProgress = (int)((double)copiedBytes / fileSize * 100);
+                if (fileProgress % 10 == 0)
+                {
+                    Log.Information("📊 {Progress}% copied for {File}. CorrelationId: {CorrelationId}",
+                        fileProgress, sourceFile, correlationId);
+                }
+            }
+            finally
             {
-                destinationStream.Seek(offset, SeekOrigin.Begin);
-                destinationStream.Write(buffer, 0, currentChunkSize);
+                semaphore.Release();
             }
-
-            Interlocked.Add(ref copiedBytes, currentChunkSize);
-
-            // Calculate progress percentage for this file
-            int fileProgress = (int)((double)copiedBytes / totalBytes * 100);
-            Log.Information("📊 Progress: {Progress}% copied for {File}. CorrelationId: {CorrelationId}",
-                fileProgress, sourceFile, correlationId);
         });
 
         await Task.WhenAll(tasks);
     }
+
 }
