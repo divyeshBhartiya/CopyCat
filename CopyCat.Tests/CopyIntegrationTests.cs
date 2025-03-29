@@ -4,8 +4,8 @@ namespace CopyCat.Tests
 {
     public class CopyIntegrationTests : IDisposable
     {
-        private readonly string testSourceDir = Path.Combine(Path.GetTempPath(), "CopyCatIntegrationTestSrc");
-        private readonly string testDestDir = Path.Combine(Path.GetTempPath(), "CopyCatIntegrationTestDst");
+        private readonly string testSourceDir = Path.Combine(Path.GetTempPath(), $"CopyCatIntegrationTestSrc + {Guid.NewGuid()}");
+        private readonly string testDestDir = Path.Combine(Path.GetTempPath(), $"CopyCatIntegrationTestDst + + {Guid.NewGuid()}");
 
         public CopyIntegrationTests()
         {

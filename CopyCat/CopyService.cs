@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Serilog;
+using Serilog.Sinks.File;
 
 namespace CopyCat;
 
@@ -128,19 +129,12 @@ public class CopyService(CopyOptions options, ProgressReporter progressReporter,
                 File.Delete(destFile);
             }
 
-            Log.Information("📄 Copying file. CorrelationId: {CorrelationId}", _correlationId);
-            using var sourceStream = File.Open(file, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var destinationStream = File.Create(destFile);
-            var buffer = new byte[81920];
-            int bytesRead;
-            while ((bytesRead = await sourceStream.ReadAsync(buffer, token)) > 0)
-            {
-                await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
-            }
-
-            CopyServiceHelper.PreserveFileMetadata(file, destFile);  // Preserve timestamps & attributes
-
+            long fileSize = new FileInfo(file).Length;
+            const long multiThreadThreshold = 4 * 1024 * 1024; // 4MB
+            if (fileSize > multiThreadThreshold) await CopyServiceHelper.CopyFileMultiThreadedAsync(file, destFile, fileSize, _correlationId, token);
+            else await CopyServiceHelper.CopyFileSingleThreadedAsync(file, destFile, fileSize, _correlationId, token);
             _progressReporter.FileCopied();
+            CopyServiceHelper.PreserveFileMetadata(file, destFile); // Preserve timestamps & attributes
         }
         catch (OperationCanceledException)
         {
@@ -153,4 +147,5 @@ public class CopyService(CopyOptions options, ProgressReporter progressReporter,
             throw;
         }
     }
+    
 }
