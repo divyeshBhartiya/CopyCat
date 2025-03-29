@@ -117,16 +117,19 @@ internal static class CopyServiceHelper
     /// <param name="correlationId"></param>
     /// <param name="token"></param>
     /// <returns></returns>
-    internal static async Task CopyFileSingleThreadedAsync(string sourceFile, string destinationFile, long fileSize, string correlationId, CancellationToken token)
+    internal static async Task CopyFileSingleThreadedAsync(string sourceFile, string destinationFile, long fileSize, string correlationId, long resumeFrom = 0, CancellationToken token = default)
     {
-        Log.Information("📄 Copying (Single-threaded) {File}. Size: {Size} bytes. CorrelationId: {CorrelationId}",
-            sourceFile, fileSize, correlationId);
+        Log.Information("📄 Copying (Single-threaded) {File}. Size: {Size} bytes. Resuming from: {ResumeBytes} bytes. CorrelationId: {CorrelationId}",
+            sourceFile, fileSize, resumeFrom, correlationId);
 
         const int bufferSize = 81920; // 80KB buffer
-        long copiedBytes = 0;
+        long copiedBytes = resumeFrom;
 
         using var sourceStream = new FileStream(sourceFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var destinationStream = new FileStream(destinationFile, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var destinationStream = new FileStream(destinationFile, FileMode.Append, FileAccess.Write, FileShare.None);
+
+        sourceStream.Seek(resumeFrom, SeekOrigin.Begin);
+        destinationStream.Seek(resumeFrom, SeekOrigin.Begin);
 
         byte[] buffer = new byte[bufferSize];
         int bytesRead;
@@ -155,25 +158,27 @@ internal static class CopyServiceHelper
     /// <param name="correlationId"></param>
     /// <param name="token"></param>
     /// <returns></returns>
-    internal static async Task CopyFileMultiThreadedAsync(string sourceFile, string destinationFile, long fileSize, string correlationId, CancellationToken token)
+    internal static async Task CopyFileMultiThreadedAsync(string sourceFile, string destinationFile, long fileSize, string correlationId, long resumeFrom = 0, CancellationToken token = default)
     {
-        Log.Information("📄 Copying (Multi-threaded) {File}. Size: {Size} bytes. CorrelationId: {CorrelationId}",
-            sourceFile, fileSize, correlationId);
+        Log.Information("📄 Copying (Multi-threaded) {File}. Size: {Size} bytes. Resuming from: {ResumeBytes} bytes. CorrelationId: {CorrelationId}",
+            sourceFile, fileSize, resumeFrom, correlationId);
 
-        long copiedBytes = 0;
+        long copiedBytes = resumeFrom;
         const int chunkSize = 4 * 1024 * 1024; // 4MB chunks
         int numChunks = (int)Math.Ceiling((double)fileSize / chunkSize);
-        SemaphoreSlim semaphore = new SemaphoreSlim(4); // Limit concurrency to 4 threads
+        SemaphoreSlim semaphore = new(4); // Limit concurrency to 4 threads
 
         using var sourceStream = new FileStream(sourceFile, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using var destinationStream = new FileStream(destinationFile, FileMode.Create, FileAccess.Write, FileShare.None);
+        using var destinationStream = new FileStream(destinationFile, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
 
         var tasks = Enumerable.Range(0, numChunks).Select(async i =>
         {
+            long offset = i * chunkSize;
+            if (offset < resumeFrom) return; // Skip already copied chunks
+
             await semaphore.WaitAsync(token);
             try
             {
-                long offset = i * chunkSize;
                 int currentChunkSize = (int)Math.Min(chunkSize, fileSize - offset);
                 byte[] buffer = new byte[currentChunkSize];
 
@@ -209,5 +214,4 @@ internal static class CopyServiceHelper
 
         await Task.WhenAll(tasks);
     }
-
 }

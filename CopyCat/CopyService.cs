@@ -121,6 +121,7 @@ public class CopyService(CopyOptions options, ProgressReporter progressReporter,
     {
         const int maxRetries = 3;
         int attempt = 0;
+        string tempDestFile = destFile + ".partial"; // Temporary file for resumption
 
         while (attempt < maxRetries)
         {
@@ -128,31 +129,37 @@ public class CopyService(CopyOptions options, ProgressReporter progressReporter,
             {
                 token.ThrowIfCancellationRequested();
 
-                if (File.Exists(destFile))
-                {
-                    File.SetAttributes(destFile, FileAttributes.Normal);
-                    File.Delete(destFile);
-                }
-
+                // Check available disk space
                 long fileSize = new FileInfo(file).Length;
-                const long multiThreadThreshold = 4 * 1024 * 1024; // 4MB
+                string driveName = Path.GetPathRoot(destFile);
+                long availableSpace = new DriveInfo(driveName).AvailableFreeSpace;
+
+                if (availableSpace < fileSize)
+                {
+                    Log.Error("🚨 Insufficient disk space. Required: {Required}, Available: {Available}. CorrelationId: {CorrelationId}",
+                        fileSize, availableSpace, _correlationId);
+                    return;
+                }
 
                 Log.Information("📄 Copying file (Attempt {Attempt}/{MaxRetries}) - Size: {FileSize} bytes. CorrelationId: {CorrelationId}",
                     attempt + 1, maxRetries, fileSize, _correlationId);
 
-                if (fileSize > multiThreadThreshold)
-                    await CopyServiceHelper.CopyFileMultiThreadedAsync(file, destFile, fileSize, _correlationId, token);
-                else
-                    await CopyServiceHelper.CopyFileSingleThreadedAsync(file, destFile, fileSize, _correlationId, token);
+                long copiedBytes = File.Exists(tempDestFile) ? new FileInfo(tempDestFile).Length : 0;
 
-                // ✅ Success! Report progress and return.
+                if (fileSize > 4 * 1024 * 1024) // 4MB threshold for multi-threading
+                    await CopyServiceHelper.CopyFileMultiThreadedAsync(file, tempDestFile, fileSize, _correlationId, copiedBytes, token);
+                else
+                    await CopyServiceHelper.CopyFileSingleThreadedAsync(file, tempDestFile, fileSize, _correlationId, copiedBytes, token);
+
+                // Rename temp file after successful copy
+                File.Move(tempDestFile, destFile, true);
+
                 _progressReporter.FileCopied();
                 CopyServiceHelper.PreserveFileMetadata(file, destFile);
-                return; // Exit on success
+                return;
             }
             catch (IOException) when (attempt < maxRetries - 1)
             {
-                // ⏳ Handle locked file - Retry after a delay
                 Log.Warning("🔄 File locked, retrying in 2 seconds... Attempt {Attempt}/{MaxRetries}. CorrelationId: {CorrelationId}",
                     attempt + 1, maxRetries, _correlationId);
                 await Task.Delay(2000, token);
@@ -170,8 +177,8 @@ public class CopyService(CopyOptions options, ProgressReporter progressReporter,
             attempt++;
         }
 
-        // 🚨 If all retries fail, log and skip the file.
         Log.Error("❌ Failed to copy file after {MaxRetries} attempts: {File}. CorrelationId: {CorrelationId}",
             maxRetries, file, _correlationId);
     }
+
 }

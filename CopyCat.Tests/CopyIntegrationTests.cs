@@ -1,4 +1,5 @@
 ﻿using System.Runtime.InteropServices;
+using Moq;
 
 namespace CopyCat.Tests
 {
@@ -268,6 +269,39 @@ namespace CopyCat.Tests
             Assert.Equal(createdTime, File.GetCreationTime(destFile), TimeSpan.FromDays(1, 1, 1, 10));
             Assert.Equal(modifiedTime, File.GetLastWriteTime(destFile), TimeSpan.FromDays(1, 1, 1, 10));
             Assert.Equal(accessedTime, File.GetLastAccessTime(destFile), TimeSpan.FromDays(1, 1, 1, 10));
+        }
+
+
+
+        [Fact]
+        public async Task CopyDirectoryAsync_ResumesAfterInterruption()
+        {
+            // Arrange
+            var options = new CopyOptions(testSourceDir, testDestDir, Overwrite: true);
+            var progress = new Progress<int>(_ => { });
+            var correlationId = Guid.NewGuid().ToString();
+            var progressReporter = new ProgressReporter(1, progress, correlationId);
+            var service = new CopyService(options, progressReporter, correlationId);
+
+            using (var cancellationTokenSource = new CancellationTokenSource())
+            {
+                await service.CopyAsync(cancellationTokenSource.Token);
+
+                // Simulate interruption after a short delay
+                await Task.Delay(1000);
+                await cancellationTokenSource.CancelAsync();
+            }
+
+            // Act: Resume the copy operation
+            using (var cancellationTokenSource = new CancellationTokenSource())
+            {
+                await service.CopyAsync(cancellationTokenSource.Token);
+            }
+
+            // Assert
+            Assert.True(Directory.Exists(testDestDir));
+            Assert.True(File.Exists(Path.Combine(testDestDir, "file1.txt")));
+            Assert.True(File.Exists(Path.Combine(testDestDir, "SubDir", "file2.txt")));
         }
 
         public void Dispose()

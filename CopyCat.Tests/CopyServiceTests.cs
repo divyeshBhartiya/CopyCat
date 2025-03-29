@@ -229,6 +229,34 @@ namespace CopyCat.Tests
             }
         }
 
+        [Fact]
+        public async Task CopyDirectoryAsync_CopiesLargeNumberOfFilesSuccessfully()
+        {
+            // Arrange
+            int fileCount = 1000;
+            for (int i = 0; i < fileCount; i++)
+            {
+                string filePath = Path.Combine(testSourceDir, $"file{i}.txt");
+                await File.WriteAllTextAsync(filePath, $"Content of file {i}");
+            }
+
+            var options = new CopyOptions(testSourceDir, testDestDir, Overwrite: true);
+            var correlationId = Guid.NewGuid().ToString();
+            var progressReporter = new ProgressReporter(1, new Progress<int>(), correlationId);
+            var service = new CopyService(options, progressReporter, correlationId);
+
+            // Act
+            await service.CopyAsync(CancellationToken.None);
+
+            // Assert
+            for (int i = 0; i < fileCount; i++)
+            {
+                string copiedFile = Path.Combine(testDestDir, $"file{i}.txt");
+                Assert.True(File.Exists(copiedFile), $"File {copiedFile} was not copied.");
+                Assert.Equal($"Content of file {i}", await File.ReadAllTextAsync(copiedFile));
+            }
+        }
+
         private void Cleanup()
         {
             if (Directory.Exists(testSourceDir))
